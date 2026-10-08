@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Winter Operations Command Center</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary: #1a365d;
+            --secondary: #2b6cb0;
+            --accent: #3182ce;
+            --danger: #e53e3e;
+            --warning: #dd6b20;
+            --success: #38a169;
+            --info: #319795;
+            --light: #f7fafc;
+            --dark: #2d3748;
+            --snow: #ebf8ff;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Open Sans', sans-serif; background: linear-gradient(135deg, #1a365d 0%, #2d3748 100%); color: white; overflow: hidden; height: 100vh; }
+        .video-wall { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; height: 100vh; gap: 2px; background: #1a202c; }
+        .camera-wall { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; height: 100vh; gap: 2px; background: #000; }
+        .screen, .camera-screen { background: var(--light); position: relative; overflow: hidden; }
+        .camera-screen { background: #000; }
+        .screen-header { background: var(--primary); color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid var(--accent); }
+        .camera-header { background: rgba(0,0,0,0.8); color: white; padding: 10px 15px; position: absolute; top: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: space-between; align-items: center; }
+        .screen-title { font-family: 'Montserrat', sans-serif; font-size: 1.5rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+        .camera-title { font-family: 'Montserrat', sans-serif; font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .screen-content { height: calc(100% - 60px); background: white; color: var(--dark); }
+        .camera-content { height: 100%; background: #000; display: flex; align-items: center; justify-content: center; }
+        .control-bar { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); padding: 15px 30px; border-radius: 50px; display: flex; gap: 15px; z-index: 1000; backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .control-btn { background: var(--secondary); color: white; border: none; padding: 12px 20px; border-radius: 25px; cursor: pointer; font-family: 'Montserrat', sans-serif; font-weight: 600; display: flex; align-items: center; gap: 8px; transition: all 0.3s ease; }
+        .control-btn:hover { background: var(--accent); transform: translateY(-2px); }
+        .control-btn.active { background: var(--success); box-shadow: 0 0 20px rgba(56,161,105,0.5); }
+        .camera-feed { width: 100%; height: 100%; object-fit: cover; background: #111; }
+        .camera-placeholder { width: 100%; height: 100%; background: linear-gradient(45deg, #1a202c 0%, #2d3748 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; text-align: center; }
+        .camera-offline { background: linear-gradient(45deg, #2d0000 0%, #5c0000 100%); }
+        .camera-icon { font-size: 3rem; margin-bottom: 15px; opacity: 0.7; }
+        .camera-status { position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 15px; font-size: 0.8rem; display: flex; align-items: center; gap: 5px; }
+        .status-live { color: var(--success); } .status-offline { color: var(--danger); } .status-recording { color: var(--danger); animation: pulse 2s infinite; }
+        #fleet-map { height: 100%; background: #e2e8f0; }
+        .crew-dashboard { padding: 20px; height: 100%; display: flex; flex-direction: column; gap: 15px; }
+        .service-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 15px; }
+        .metric-card { background: white; border-radius: 8px; padding: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); border-left: 4px solid var(--success); }
+        .metric-card.danger { border-left-color: var(--danger); }
+        .metric-card.warning { border-left-color: var(--warning); }
+        .metric-value { font-size: 2rem; font-weight: 700; color: var(--primary); }
+        .metric-label { font-size: 0.9rem; color: var(--dark); margin-top: 5px; }
+        .crew-list { flex: 1; overflow-y: auto; }
+        .crew-item { display: flex; align-items: center; padding: 15px; background: white; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-left: 4px solid var(--success); }
+        .crew-item.delayed { border-left-color: var(--warning); }
+        .crew-item.overdue { border-left-color: var(--danger); }
+        .crew-avatar { width: 50px; height: 50px; border-radius: 50%; background: var(--secondary); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 1.2rem; margin-right: 15px; }
+        .crew-info { flex: 1; }
+        .crew-name { font-weight: 700; font-size: 1.1rem; color: var(--primary); }
+        .crew-location { font-size: 0.9rem; color: var(--dark); margin-top: 3px; }
+        .crew-status { font-weight: 600; padding: 5px 10px; border-radius: 20px; font-size: 0.8rem; }
+        .status-ontime { background: rgba(56,161,105,0.2); color: var(--success); }
+        .status-delayed { background: rgba(221,107,32,0.2); color: var(--warning); }
+        .status-overdue { background: rgba(229,62,62,0.2); color: var(--danger); }
+        .weather-alerts { padding: 20px; height: 100%; display: grid; grid-template-rows: auto 1fr auto; gap: 20px; }
+        .current-weather { background: linear-gradient(135deg, #4c7cd6 0%, #2b6cb0 100%); border-radius: 12px; padding: 20px; color: white; display: flex; justify-content: space-between; align-items: center; }
+        .weather-main { display: flex; align-items: center; gap: 15px; }
+        .weather-icon { font-size: 3rem; }
+        .weather-temp { font-size: 2.5rem; font-weight: 700; }
+        .weather-details { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .weather-detail { text-align: center; }
+        .weather-detail-value { font-size: 1.2rem; font-weight: 600; }
+        .weather-detail-label { font-size: 0.8rem; opacity: 0.9; }
+        .alerts-container { background: white; border-radius: 8px; padding: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow-y: auto; }
+        .alert-item { padding: 12px; border-left: 4px solid var(--warning); background: #fffaf0; margin-bottom: 10px; border-radius: 4px; }
+        .alert-item.severe { border-left-color: var(--danger); background: #fed7d7; }
+        .alert-title { font-weight: 700; color: var(--dark); margin-bottom: 5px; }
+        .alert-desc { font-size: 0.9rem; color: var(--dark); }
+        .snow-forecast { background: var(--snow); border-radius: 8px; padding: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .forecast-title { font-weight: 700; color: var(--primary); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+        .forecast-items { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        .forecast-item { text-align: center; padding: 8px; background: white; border-radius: 6px; }
+        .forecast-day { font-weight: 600; color: var(--primary); }
+        .forecast-snow { font-size: 1.1rem; font-weight: 700; color: var(--info); margin-top: 5px; }
+        .snow-totals { padding: 20px; height: 100%; display: grid; grid-template-rows: auto 1fr; gap: 20px; }
+        .season-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
+        .stat-card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+        .stat-value { font-size: 2.5rem; font-weight: 800; color: var(--primary); margin-bottom: 5px; }
+        .stat-label { font-size: 0.9rem; color: var(--dark); }
+        .snow-accumulation { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .accumulation-chart { height: 200px; margin-top: 15px; position: relative; }
+        .chart-bar { position: absolute; bottom: 0; background: linear-gradient(to top, #3182ce, #90cdf4); border-radius: 4px 4px 0 0; width: 30px; transition: height 0.5s ease; }
+        .chart-label { position: absolute; bottom: -25px; text-align: center; width: 30px; font-size: 0.8rem; color: var(--dark); }
+        .vehicle-marker { background: var(--success); border: 3px solid white; border-radius: 50%; width: 16px; height: 16px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+        .vehicle-marker.inactive { background: var(--danger); }
+        .vehicle-marker.maintenance { background: var(--warning); }
+        .last-update { font-size: 0.8rem; opacity: 0.8; }
+        .updating::after { content: " •"; color: var(--success); animation: pulse 1s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .clock { position: absolute; top: 20px; right: 20px; font-size: 1.2rem; font-weight: 600; background: rgba(0,0,0,0.7); padding: 8px 15px; border-radius: 20px; z-index: 1000; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="video-wall" id="operations-dashboard">
+        <div class="screen">
+            <div class="screen-header">
+                <div class="screen-title"><i class="fas fa-truck-plow"></i> LIVE FLEET OPERATIONS</div>
+                <div class="last-update updating" id="map-update">Updating...</div>
+            </div>
+            <div class="screen-content"><div id="fleet-map"></div></div>
+        </div>
+        <div class="screen">
+            <div class="screen-header">
+                <div class="screen-title"><i class="fas fa-users"></i> CREW STATUS & CLIENT SERVICE</div>
+                <div class="last-update updating" id="crew-update">Updating...</div>
+            </div>
+            <div class="screen-content">
+                <div class="crew-dashboard">
+                    <div class="service-metrics">
+                        <div class="metric-card"><div class="metric-value" id="completed-sites">42</div><div class="metric-label">Sites Completed</div></div>
+                        <div class="metric-card warning"><div class="metric-value" id="delayed-sites">8</div><div class="metric-label">Delayed Services</div></div>
+                        <div class="metric-card danger"><div class="metric-value" id="overdue-sites">3</div><div class="metric-label">Overdue Services</div></div>
+                    </div>
+                    <div class="crew-list" id="crew-list"></div>
+                </div>
+            </div>
+        </div>
+        <div class="screen">
+            <div class="screen-header">
+                <div class="screen-title"><i class="fas fa-cloud-sun"></i> WEATHER & ALERTS</div>
+                <div class="last-update updating" id="weather-update">Updating...</div>
+            </div>
+            <div class="screen-content">
+                <div class="weather-alerts">
+                    <div class="current-weather">
+                        <div class="weather-main">
+                            <div class="weather-icon"><i class="fas fa-snowflake"></i></div>
+                            <div><div class="weather-temp" id="current-temp">--°F</div><div id="weather-condition">--</div></div>
+                        </div>
+                        <div class="weather-details">
+                            <div class="weather-detail"><div class="weather-detail-value" id="wind-speed">-- mph</div><div class="weather-detail-label">Wind</div></div>
+                            <div class="weather-detail"><div class="weather-detail-value" id="snow-today">--"</div><div class="weather-detail-label">Snow Today</div></div>
+                        </div>
+                    </div>
+                    <div class="alerts-container" id="alerts-container"></div>
+                    <div class="snow-forecast">
+                        <div class="forecast-title"><i class="fas fa-calendar-day"></i> 3-Day Snow Forecast</div>
+                        <div class="forecast-items" id="snow-forecast"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="screen">
+            <div class="screen-header">
+                <div class="screen-title"><i class="fas fa-chart-bar"></i> SEASON SNOW TOTALS & METRICS</div>
+                <div class="last-update" id="metrics-update">Season 2023-2024</div>
+            </div>
+            <div class="screen-content">
+                <div class="snow-totals">
+                    <div class="season-stats">
+                        <div class="stat-card"><div class="stat-value" id="season-snow">--"</div><div class="stat-label">Total Season Snowfall</div></div>
+                        <div class="stat-card"><div class="stat-value" id="storm-events">--</div><div class="stat-label">Storm Events</div></div>
+                        <div class="stat-card"><div class="stat-value" id="service-hours">--</div><div class="stat-label">Service Hours</div></div>
+                        <div class="stat-card"><div class="stat-value" id="salt-used">--</div><div class="stat-label">Tons of Salt Used</div></div>
+                    </div>
+                    <div class="snow-accumulation">
+                        <div class="forecast-title"><i class="fas fa-mountain"></i> Monthly Snow Accumulation</div>
+                        <div class="accumulation-chart" id="snow-chart"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="camera-wall hidden" id="camera-wall">
+        <div class="camera-screen">
+            <div class="camera-header">
+                <div class="camera-title"><i class="fas fa-video"></i> MAIN YARD - GATE 1</div>
+                <div class="camera-status"><i class="fas fa-circle status-live"></i> LIVE</div>
+            </div>
+            <div class="camera-content">
+                <img src="assets/cam-placeholder.jpg" class="camera-feed" id="camera1" alt="Main Yard Camera">
+            </div>
+        </div>
+        <div class="camera-screen">
+            <div class="camera-header">
+                <div class="camera-title"><i class="fas fa-video"></i> EQUIPMENT STORAGE</div>
+                <div class="camera-status"><i class="fas fa-circle status-recording"></i> RECORDING</div>
+            </div>
+            <div class="camera-content">
+                <img src="assets/cam-placeholder.jpg" class="camera-feed" id="camera2" alt="Equipment Storage Camera">
+            </div>
+        </div>
+        <div class="camera-screen">
+            <div class="camera-header">
+                <div class="camera-title"><i class="fas fa-video"></i> SALT DOME & LOADING</div>
+                <div class="camera-status"><i class="fas fa-circle status-live"></i> LIVE</div>
+            </div>
+            <div class="camera-content">
+                <img src="assets/cam-placeholder.jpg" class="camera-feed" id="camera3" alt="Salt Dome Camera">
+            </div>
+        </div>
+        <div class="camera-screen">
+            <div class="camera-header">
+                <div class="camera-title"><i class="fas fa-video"></i> FUEL STATION</div>
+                <div class="camera-status"><i class="fas fa-circle status-offline"></i> OFFLINE</div>
+            </div>
+            <div class="camera-content">
+                <img src="assets/cam-offline.jpg" class="camera-feed" id="camera4" alt="Fuel Station Camera">
+            </div>
+        </div>
+    </div>
+
+    <div class="control-bar">
+        <button class="control-btn active" id="btn-operations"><i class="fas fa-tachometer-alt"></i> OPERATIONS VIEW</button>
+        <button class="control-btn" id="btn-cameras"><i class="fas fa-video"></i> SECURITY CAMERAS</button>
+        <button class="control-btn" id="btn-full-camera"><i class="fas fa-expand"></i> FULL CAMERA VIEW</button>
+        <button class="control-btn" id="btn-camera-cycle"><i class="fas fa-sync"></i> CYCLE CAMERAS (30s)</button>
+    </div>
+    <div class="clock" id="live-clock">00:00:00</div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+
+    <script>
+        let currentView = 'operations';
+        let cameraCycleInterval = null;
+        let currentCameraLayout = 'grid';
+        let map; let vehicleMarkers = [];
+
+        document.addEventListener('DOMContentLoaded', async function() {
+            initMap();
+            initClock();
+            initCameraFeeds();
+            await loadFromAPI(); // initial data load
+            startRealtime(); // live ticks via socket
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            document.getElementById('btn-operations').addEventListener('click', showOperationsView);
+            document.getElementById('btn-cameras').addEventListener('click', showCameraView);
+            document.getElementById('btn-full-camera').addEventListener('click', toggleFullCameraView);
+            document.getElementById('btn-camera-cycle').addEventListener('click', toggleCameraCycle);
+        }
+
+        function showOperationsView() {
+            document.getElementById('operations-dashboard').classList.remove('hidden');
+            document.getElementById('camera-wall').classList.add('hidden');
+            document.getElementById('btn-operations').classList.add('active');
+            document.getElementById('btn-cameras').classList.remove('active');
+            document.getElementById('btn-full-camera').classList.remove('active');
+            currentView = 'operations';
+            stopCameraCycle();
+        }
+
+        function showCameraView() {
+            document.getElementById('operations-dashboard').classList.add('hidden');
+            document.getElementById('camera-wall').classList.remove('hidden');
+            document.getElementById('btn-operations').classList.remove('active');
+            document.getElementById('btn-cameras').classList.add('active');
+            document.getElementById('btn-full-camera').classList.remove('active');
+            currentView = 'cameras';
+            currentCameraLayout = 'grid';
+        }
+
+        function toggleFullCameraView() {
+            if (currentView === 'operations') showCameraView();
+            const btn = document.getElementById('btn-full-camera');
+            if (currentCameraLayout === 'grid') { btn.classList.add('active'); currentCameraLayout = 'single'; alert('Switching to single camera view'); }
+            else { btn.classList.remove('active'); currentCameraLayout = 'grid'; }
+        }
+
+        function toggleCameraCycle() {
+            const btn = document.getElementById('btn-camera-cycle');
+            if (cameraCycleInterval) { stopCameraCycle(); btn.classList.remove('active'); }
+            else { startCameraCycle(); btn.classList.add('active'); }
+        }
+
+        function startCameraCycle() {
+            let currentCamera = 0;
+            const cameras = ['camera1', 'camera2', 'camera3', 'camera4'];
+            cameraCycleInterval = setInterval(() => {
+                cameras.forEach((id, index) => {
+                    const el = document.getElementById(id);
+                    el.style.opacity = (index === currentCamera) ? '1' : '0.15';
+                });
+                currentCamera = (currentCamera + 1) % cameras.length;
+            }, 30000);
+        }
+        function stopCameraCycle() { if (cameraCycleInterval) { clearInterval(cameraCycleInterval); cameraCycleInterval = null; } }
+
+        function initCameraFeeds() {
+            // Using static placeholders in /public/assets; replace with your snapshot URLs or HLS proxies later.
+        }
+
+        function initMap() {
+            const centerCoords = [41.8781, -87.6298];
+            map = L.map('fleet-map').setView(centerCoords, 10);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+        }
+
+        function updateMapWithVehicles(vehicles) {
+            vehicleMarkers.forEach(m => map.removeLayer(m)); vehicleMarkers = [];
+            if (!vehicles || !vehicles.length) return;
+            let bounds = [];
+            vehicles.forEach(v => {
+                if (!v.location || !v.location.latitude || !v.location.longitude) return;
+                const coords = [v.location.latitude, v.location.longitude];
+                bounds.push(coords);
+                let markerClass = 'vehicle-marker';
+                if (v.status === 'inactive') markerClass += ' inactive';
+                else if (v.status === 'maintenance') markerClass += ' maintenance';
+                const customIcon = L.divIcon({ className: markerClass, html: '<div style="width:100%;height:100%;border-radius:50%;"></div>', iconSize: [16,16], iconAnchor: [8,8] });
+                const marker = L.marker(coords, { icon: customIcon }).addTo(map).bindPopup(`
+                    <strong>${v.name}</strong><br>Driver: ${v.driver}<br>Status: ${v.status}<br>Last Update: ${v.lastUpdate}
+                `);
+                vehicleMarkers.push(marker);
+            });
+            if (bounds.length) map.fitBounds(bounds, { padding: [20, 20] });
+        }
+
+        function initClock() {
+            function updateClock() {
+                const now = new Date();
+                document.getElementById('live-clock').textContent = now.toLocaleTimeString();
+            }
+            updateClock(); setInterval(updateClock, 1000);
+        }
+
+        async function loadFromAPI() {
+            const [fleet, crew, weather, season] = await Promise.all([
+                fetch('/api/fleet').then(r => r.json()),
+                fetch('/api/crew').then(r => r.json()),
+                fetch('/api/weather').then(r => r.json()),
+                fetch('/api/season').then(r => r.json())
+            ]);
+            updateMapWithVehicles(fleet.data);
+            updateCrewUI(crew.data);
+            updateWeatherUI(weather.data);
+            updateSnowTotalsUI(season.data);
+            const now = new Date().toLocaleTimeString();
+            document.getElementById('map-update').textContent = `Last update: ${now}`;
+            document.getElementById('crew-update').textContent = `Last update: ${now}`;
+            document.getElementById('weather-update').textContent = `Last update: ${now}`;
+        }
+
+        function updateCrewUI(crewData) {
+            const crewList = document.getElementById('crew-list');
+            crewList.innerHTML = '';
+            crewData.forEach(crew => {
+                const div = document.createElement('div');
+                div.className = `crew-item ${crew.status === 'delayed' ? 'delayed' : crew.status === 'overdue' ? 'overdue' : ''}`;
+                div.innerHTML = `
+                    <div class="crew-avatar">${crew.avatar}</div>
+                    <div class="crew-info">
+                        <div class="crew-name">${crew.name}</div>
+                        <div class="crew-location">${crew.location}</div>
+                    </div>
+                    <div class="crew-status status-${crew.status}">
+                        ${crew.status === 'ontime' ? 'On Time' : crew.status === 'delayed' ? 'Delayed' : 'Overdue'}
+                    </div>
+                `;
+                crewList.appendChild(div);
+            });
+            const delayedCount = crewData.filter(c => c.status === 'delayed').length;
+            const overdueCount = crewData.filter(c => c.status === 'overdue').length;
+            document.getElementById('delayed-sites').textContent = delayedCount;
+            document.getElementById('overdue-sites').textContent = overdueCount;
+            document.getElementById('completed-sites').textContent = String(42 + Math.floor(Math.random() * 3));
+        }
+
+        function updateWeatherUI(weatherData) {
+            document.getElementById('current-temp').textContent = `${weatherData.temp}°F`;
+            document.getElementById('weather-condition').textContent = weatherData.condition;
+            document.getElementById('wind-speed').textContent = `${weatherData.wind} mph`;
+            document.getElementById('snow-today').textContent = `${weatherData.snowToday}"`;
+
+            const alertsContainer = document.getElementById('alerts-container');
+            alertsContainer.innerHTML = '';
+            weatherData.alerts.forEach(alert => {
+                const div = document.createElement('div');
+                div.className = `alert-item ${alert.type === 'severe' ? 'severe' : ''}`;
+                div.innerHTML = `<div class="alert-title">${alert.title}</div><div class="alert-desc">${alert.description}</div>`;
+                alertsContainer.appendChild(div);
+            });
+
+            const forecastContainer = document.getElementById('snow-forecast');
+            forecastContainer.innerHTML = '';
+            weatherData.forecast.forEach(day => {
+                const d = document.createElement('div'); d.className = 'forecast-item';
+                d.innerHTML = `<div class="forecast-day">${day.day}</div><div class="forecast-snow">${day.snow}</div>`;
+                forecastContainer.appendChild(d);
+            });
+        }
+
+        function updateSnowTotalsUI(snowData) {
+            document.getElementById('season-snow').textContent = `${snowData.seasonTotal}"`;
+            document.getElementById('storm-events').textContent = snowData.stormEvents;
+            document.getElementById('service-hours').textContent = snowData.serviceHours.toLocaleString();
+            document.getElementById('salt-used').textContent = snowData.saltUsed;
+            const chart = document.getElementById('snow-chart'); chart.innerHTML = '';
+            const months = ['Nov','Dec','Jan','Feb','Mar'];
+            const maxSnow = Math.max(...snowData.monthlyAccumulation);
+            snowData.monthlyAccumulation.forEach((snow, i) => {
+                const barHeight = (snow / maxSnow) * 180;
+                const left = 20 + (i * 60);
+                const bar = document.createElement('div'); bar.className = 'chart-bar'; bar.style.height = `${barHeight}px`; bar.style.left = `${left}px`;
+                const label = document.createElement('div'); label.className = 'chart-label'; label.textContent = months[i]; label.style.left = `${left}px`;
+                chart.appendChild(bar); chart.appendChild(label);
+            });
+        }
+
+        function startRealtime() {
+            const socket = io();
+            socket.on('tick', () => {
+                loadFromAPI();
+                ['map-update','crew-update','weather-update'].forEach(id => {
+                    const el = document.getElementById(id);
+                    el.classList.add('updating');
+                    setTimeout(() => el.classList.remove('updating'), 2000);
+                });
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+services:
+  winter-ops:
+    build: .
+    ports:
+      - "5173:5173"
+    environment:
+      - PORT=5173
+      - UPDATE_INTERVAL_MS=30000
+    restart: unless-stopped
